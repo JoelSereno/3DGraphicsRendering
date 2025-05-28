@@ -52,13 +52,13 @@ macro(SETUP_APP projname)
 		set_target_properties(${PROJECT_NAME} PROPERTIES XCODE_GENERATE_SCHEME TRUE XCODE_SCHEME_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 	endif()
 
-	find_library (GLFW_LIB
-		NAMES glfw3
+	find_library (VULKAN
+		NAMES vulkan-1
 		PATHS thirdParty/lib
 		)
 	
-	if (GLFW_LIB)
-		target_link_libraries(${PROJECT_NAME} ${GLFW_LIB})
+	if (VULKAN)
+		target_link_libraries(${PROJECT_NAME} ${VULKAN})
 	endif ()
 
 	target_include_directories(${PROJECT_NAME} PRIVATE thirdParty/include)
