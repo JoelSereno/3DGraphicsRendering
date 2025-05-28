@@ -51,4 +51,15 @@ macro(SETUP_APP projname)
 	if(APPLE)
 		set_target_properties(${PROJECT_NAME} PROPERTIES XCODE_GENERATE_SCHEME TRUE XCODE_SCHEME_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 	endif()
+
+	find_library (GLFW_LIB
+		NAMES glfw3
+		PATHS thirdParty/lib
+		)
+	
+	if (GLFW_LIB)
+		target_link_libraries(${PROJECT_NAME} ${GLFW_LIB})
+	endif ()
+
+	target_include_directories(${PROJECT_NAME} PRIVATE thirdParty/include)
 endmacro()
