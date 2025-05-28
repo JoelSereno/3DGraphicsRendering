@@ -1,18 +1,29 @@
-#include <HelpersGLFW.h>
+#include <stdio.h>
+#include <fstream>
+#include <vector>
+
+#include <taskflow/taskflow.hpp>
+#include <taskflow/algorithm/for_each.hpp>
 
 int main()
 {
-	uint32_t width = 1280;
-	uint32_t height = 800;
+    tf::Taskflow taskflow;
 
-	GLFWwindow* window = initWindow("GLFW example", width, height);
+    std::vector<int> items{ 1, 2, 3, 4, 5, 6, 7, 8 };
 
-	while (!glfwWindowShouldClose(window)) {
-		glfwPollEvents();
-	}
+    auto task =
+        taskflow.for_each_index(0u, static_cast<uint32_t>(items.size()), 1u, [&](int i) { printf("%i", items[i]); }).name("for_each_index");
 
-	glfwDestroyWindow(window);
-	glfwTerminate;
+    taskflow.emplace([]() { printf("\nS - Start\n"); }).name("S").precede(task);
+    taskflow.emplace([]() { printf("\nT - End\n"); }).name("T").succeed(task);
 
-	return 0;
+    {
+        std::ofstream os(".cache/taskflow.dot");
+        taskflow.dump(os);
+    }
+
+    tf::Executor executor;
+    executor.run(taskflow).wait();
+
+    return 0;
 }
