@@ -1,29 +1,21 @@
 //
-#version 450
+#version 460
 
-layout(location = 0) out vec3 fragColor;
-layout(location = 1) out vec2 texCoord;
+layout (location=0) out vec3 color;
 
-vec2 positions[3] = vec2[](
-    vec2(0.0, -0.5),
-    vec2(0.5, 0.5),
-    vec2(-0.5, 0.5)
+const vec2 pos[3] = vec2[3](
+	vec2(-0.6, -0.4),
+	vec2( 0.6, -0.4),
+	vec2( 0.0,  0.6)
 );
 
-vec3 colors[3] = vec3[](
-    vec3(1.0, 0.0, 0.0),
-    vec3(0.0, 1.0, 0.0),
-    vec3(0.0, 0.0, 1.0)
-);
-
-vec2 texcoords[3] = vec2[](
-	vec2(1.0f, 0.0f),
-	vec2(0.0f, 0.0f),
-	vec2(0.0f, 1.0f)
+const vec3 col[3] = vec3[3](
+	vec3(1.0, 0.0, 0.0),
+	vec3(0.0, 1.0, 0.0),
+	vec3(0.0, 0.0, 1.0)
 );
 
 void main() {
-	gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
-	fragColor = colors[gl_VertexIndex];
-	texCoord  = texcoords[gl_VertexIndex];
+	gl_Position = vec4(pos[gl_VertexIndex], 0.0, 1.0);
+	color = col[gl_VertexIndex];
 }
