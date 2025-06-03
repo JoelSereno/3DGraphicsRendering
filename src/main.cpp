@@ -1,5 +1,6 @@
 #include <GLFW/glfw3.h>
 #include <lvk/LVK.h>
+#include <lvk/HelpersImGui.h>
 #include <Utils.h>
 #include <assimp/scene.h>
 #include <assimp/cimport.h>
@@ -7,11 +8,12 @@
 #include <glm/glm.hpp>
 #include <glm/ext.hpp>
 #include <stb/stb_image.h>
+#include <imgui/misc/single_file/imgui_single_file.h>
 
 int main(void) {
 	minilog::initialize(nullptr, { .threadNames = false });
-	int width = 960;
-	int height = 540;
+	int width = -95;
+	int height = -90;
 	GLFWwindow* window = lvk::initWindow(
 		"Simple example", width, height
 	);
@@ -20,6 +22,30 @@ int main(void) {
 			lvk::createVulkanContextWithSwapchain(
 				window, width, height, {}
 		);
+
+		std::unique_ptr<lvk::ImGuiRenderer> imgui =
+			std::make_unique<lvk::ImGuiRenderer>(
+				*ctx, "data/OpenSans-Light.ttf", 30.0f
+			);
+
+		glfwSetCursorPosCallback(window,
+			[](auto* window, double x, double y) {
+				ImGui::GetIO().MousePos = ImVec2(x, y);
+			});
+		glfwSetMouseButtonCallback(window,
+			[](auto* window, int button, int action, int mods) {
+				double xpos, ypos;
+				glfwGetCursorPos(window, &xpos, &ypos);
+				const ImGuiMouseButton_ imguiButton =
+					(button == GLFW_MOUSE_BUTTON_LEFT) ?
+					ImGuiMouseButton_Left : (
+						button == GLFW_MOUSE_BUTTON_RIGHT ?
+						ImGuiMouseButton_Right :
+						ImGuiMouseButton_Middle);
+				ImGuiIO& io = ImGui::GetIO();
+				io.MousePos = ImVec2((float)xpos, (float)ypos);
+				io.MouseDown[imguiButton] = action == GLFW_PRESS;
+			});
 
 		const aiScene* scene = aiImportFile("data/rubber_duck/scene.gltf", aiProcess_Triangulate);
 		const aiMesh* mesh = scene->mMeshes[0];
@@ -111,14 +137,24 @@ int main(void) {
 			};
 
 			lvk::ICommandBuffer& buf = ctx->acquireCommandBuffer();
+			const lvk::Framebuffer framebuffer = {
+				.color = { {.texture = ctx->getCurrentSwapchainTexture()} }
+			};
 			buf.cmdBeginRendering(
 				{ .color = { {.loadOp = lvk::LoadOp_Clear, .clearColor = { 1.0f, 1.0f, 1.0f, 1.0f } } } },
-				{ .color = { {.texture = ctx->getCurrentSwapchainTexture() } } });
+				framebuffer);
 			buf.cmdPushDebugGroupLabel("Quad", 0xff0000ff);
 			buf.cmdBindRenderPipeline(pipeline);
 			buf.cmdPushConstants(pc);
 			buf.cmdDraw(4);
 			buf.cmdPopDebugGroupLabel();
+			imgui->beginFrame(framebuffer);
+			ImGui::Begin("Texture Viewer", nullptr,
+				ImGuiWindowFlags_AlwaysAutoResize);
+			ImGui::Image(texture.index(), ImVec2(512, 512));
+			ImGui::ShowDemoWindow();
+			ImGui::End();
+			imgui->endFrame(buf);
 			buf.cmdEndRendering();
 
 			ctx->submit(buf, ctx->getCurrentSwapchainTexture());
