@@ -6,6 +6,7 @@
 #include <assimp/postprocess.h>
 #include <glm/glm.hpp>
 #include <glm/ext.hpp>
+#include <stb/stb_image.h>
 
 int main(void) {
 	minilog::initialize(nullptr, { .threadNames = false });
@@ -67,35 +68,30 @@ int main(void) {
 		lvk::Holder<lvk::ShaderModuleHandle> vert = loadShaderModule(ctx, "src/main.vert");
 		lvk::Holder<lvk::ShaderModuleHandle> frag = loadShaderModule(ctx, "src/main.frag");
 
-		lvk::Holder<lvk::RenderPipelineHandle> pipelineSolid = 
-			ctx->createRenderPipeline({
-				.vertexInput	= vdesc,
-				.smVert			= vert,
-				.smFrag			= frag,
-				.color			= { { .format = ctx->getSwapchainFormat() } },
-				.depthFormat	= ctx->getFormat(depthTexture),
-				.cullMode		= lvk::CullMode_Back
-				});
+		lvk::Holder<lvk::RenderPipelineHandle> pipeline = ctx->createRenderPipeline({
+			.topology = lvk::Topology_TriangleStrip,
+			.smVert   = vert,
+			.smFrag   = frag,
+			.color    = { { .format = ctx->getSwapchainFormat() } },
+			.cullMode = lvk::CullMode_Back,
+		});
 
-		const uint32_t isWireFrame = 1;
-		lvk::Holder<lvk::RenderPipelineHandle> pipelineWireframe = 
-			ctx->createRenderPipeline({
-				.vertexInput	= vdesc,
-				.smVert			= vert,
-				.smFrag			= frag,
-				.specInfo		= {
-									.entries = { {.constantId = 0,
-												  .size = sizeof(uint32_t) } },
-									.data = &isWireFrame,
-									.dataSize = sizeof(isWireFrame) },
-				.color			= { { .format = ctx->getSwapchainFormat() } },
-				.depthFormat	= ctx->getFormat(depthTexture),
-				.cullMode		= lvk::CullMode_Back,
-				.polygonMode    = lvk::PolygonMode_Line
-				});
+		LVK_ASSERT(pipeline.valid());
 
-		LVK_ASSERT(pipelineSolid.valid());
-		LVK_ASSERT(pipelineWireframe.valid());
+		int w, h, comp;
+		const stbi_uc* img = stbi_load(
+			"data/wood.jpg", &w, &h, &comp, 4
+		);
+
+		lvk::Holder<lvk::TextureHandle> texture = ctx->createTexture({
+			.type		= lvk::TextureType_2D,
+			.format		= lvk::Format_RGBA_UN8,
+			.dimensions = { (uint32_t)w, (uint32_t)h },
+			.usage		= lvk::TextureUsageBits_Sampled,
+			.data		= img,
+			.debugName  = "STB.jpg"
+			});
+		stbi_image_free((void*)img);
 
 		while (!glfwWindowShouldClose(window)) {
 			glfwPollEvents();
@@ -103,36 +99,26 @@ int main(void) {
 			if (!width || !height) continue;
 
 			const float ratio = width / (float)height;
-			const glm::mat4 p = glm::perspective(45.0f, ratio, 0.1f, 1000.0f);
-			const glm::mat4 m = glm::rotate(glm::mat4(1.0f), 
-				glm::radians(-90.0f), glm::vec3(1, 0, 0));
-			const glm::mat4 v = glm::rotate(glm::translate(
-				glm::mat4(1.0f), glm::vec3(0.0f, -0.5f, -1.5f)), (float)glfwGetTime(),
-				glm::vec3(0.0f, 1.0f, 0.0f));
+			const glm::mat4 m = glm::rotate(glm::mat4(1.0f), (float)glfwGetTime(), glm::vec3(0.0f, 0.0f, 1.0f));
+			const glm::mat4 p = glm::ortho(-ratio, ratio, -1.f, 1.f, 1.f, -1.f);
 
-			const lvk::RenderPass renderPass = {
-				.color = { { .loadOp = lvk::LoadOp_Clear, .clearColor = {1, 1, 1, 1} } },
-				.depth = { .loadOp = lvk::LoadOp_Clear, .clearDepth = 1. }
-			};
-			const lvk::Framebuffer framebuffer = {
-				.color = { { .texture = ctx->getCurrentSwapchainTexture() } },
-				.depthStencil = { .texture = depthTexture }
+			const struct PerFrameData {
+				glm::mat4 mvp;
+				uint32_t textureId;
+			} pc = {
+				.mvp		= p * m,
+				.textureId	= texture.index()
 			};
 
 			lvk::ICommandBuffer& buf = ctx->acquireCommandBuffer();
-			buf.cmdBeginRendering(renderPass, framebuffer);
-
-			buf.cmdBindVertexBuffer(0, vertexBuffer);
-			buf.cmdBindIndexBuffer(indexBuffer, lvk::IndexFormat_UI32);
-			buf.cmdBindRenderPipeline(pipelineSolid);
-			buf.cmdBindDepthState({ .compareOp = lvk::CompareOp_Less, .isDepthWriteEnabled = true });
-			buf.cmdPushConstants(p * v * m);
-			buf.cmdDrawIndexed(indices.size());
-			buf.cmdBindRenderPipeline(pipelineWireframe);
-			buf.cmdSetDepthBiasEnable(true);
-			buf.cmdSetDepthBias(0.0f, -1.0f, 0.0f);
-			buf.cmdDrawIndexed(indices.size());
-
+			buf.cmdBeginRendering(
+				{ .color = { {.loadOp = lvk::LoadOp_Clear, .clearColor = { 1.0f, 1.0f, 1.0f, 1.0f } } } },
+				{ .color = { {.texture = ctx->getCurrentSwapchainTexture() } } });
+			buf.cmdPushDebugGroupLabel("Quad", 0xff0000ff);
+			buf.cmdBindRenderPipeline(pipeline);
+			buf.cmdPushConstants(pc);
+			buf.cmdDraw(4);
+			buf.cmdPopDebugGroupLabel();
 			buf.cmdEndRendering();
 
 			ctx->submit(buf, ctx->getCurrentSwapchainTexture());
