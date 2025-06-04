@@ -8,24 +8,27 @@
 #include <glm/glm.hpp>
 #include <glm/ext.hpp>
 #include <stb/stb_image.h>
-#include <imgui/misc/single_file/imgui_single_file.h>
 
 int main(void) {
 	minilog::initialize(nullptr, { .threadNames = false });
-	int width = -95;
-	int height = -90;
-	GLFWwindow* window = lvk::initWindow(
-		"Simple example", width, height
-	);
+
+	GLFWwindow* window = nullptr;
 	{
-		std::unique_ptr<lvk::IContext> ctx =
-			lvk::createVulkanContextWithSwapchain(
-				window, width, height, {}
-		);
+		std::unique_ptr<lvk::IContext> ctx;
+		int width = -95;
+		int height = -90;
+		{
+			LVK_PROFILER_ZONE("Initialization", LVK_PROFILER_COLOR_CREATE);
+
+			window = lvk::initWindow("Simple example", width, height);
+			ctx = lvk::createVulkanContextWithSwapchain(window, width, height, {});
+
+			LVK_PROFILER_ZONE_END();
+		}
 
 		std::unique_ptr<lvk::ImGuiRenderer> imgui =
 			std::make_unique<lvk::ImGuiRenderer>(
-				*ctx, "data/OpenSans-Light.ttf", 30.0f
+				*ctx, "data/OpenSans-Light.ttf", 20.0f
 			);
 
 		glfwSetCursorPosCallback(window,
@@ -137,6 +140,8 @@ int main(void) {
 			};
 
 			lvk::ICommandBuffer& buf = ctx->acquireCommandBuffer();
+			LVK_PROFILER_ZONE("Fill command buffer", 0xffffff);
+
 			const lvk::Framebuffer framebuffer = {
 				.color = { {.texture = ctx->getCurrentSwapchainTexture()} }
 			};
@@ -156,6 +161,8 @@ int main(void) {
 			ImGui::End();
 			imgui->endFrame(buf);
 			buf.cmdEndRendering();
+
+			LVK_PROFILER_ZONE_END();
 
 			ctx->submit(buf, ctx->getCurrentSwapchainTexture());
 		}
