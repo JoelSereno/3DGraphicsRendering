@@ -85,7 +85,6 @@ include_directories(deps/src)
 include_directories(deps/src/lightweightvk/third-party/deps/src/taskflow)
 include_directories(deps/src/lightweightvk/third-party/deps/src/glm)
 include_directories(deps/src/lightweightvk/third-party/deps/src/imgui)
-
 add_subdirectory(deps/cmake/ImGuizmo)
 
 set_property(TARGET assimp          PROPERTY FOLDER "third-party")
@@ -109,9 +108,10 @@ endif()
 
 # lvk tracy
 if(LVK_WITH_TRACY)
-  target_compile_definitions(LVKLibrary PUBLIC "LVK_WITH_TRACY=1")
+  target_compile_definitions(LVKVulkan PUBLIC "LVK_WITH_TRACY=1")
   if(LVK_WITH_TRACY_GPU)
-    target_compile_definitions(LVKLibrary PUBLIC "LVK_WITH_TRACY_GPU=1")
+    target_compile_definitions(LVKVulkan PUBLIC "LVK_WITH_TRACY_GPU=1")
+    target_include_directories(LVKVulkan PUBLIC "${ROOT_DIR}/deps/src/lightweightvk/third-party/deps/src/tracy/public")
   endif()
 endif()
 
@@ -124,5 +124,8 @@ target_link_libraries(3DGraphicsRendering LUtils)
 target_link_libraries(3DGraphicsRendering LVKLibrary)
 target_link_libraries(3DGraphicsRendering LVKstb)
 target_link_libraries(3DGraphicsRendering ktx)
+
+target_sources(3DGraphicsRendering PRIVATE "${ROOT_DIR}/deps/src/lightweightvk/third-party/deps/src/imgui/imgui_demo.cpp")
+target_sources(3DGraphicsRendering PRIVATE "${ROOT_DIR}/deps/src/lightweightvk/third-party/deps/src/implot/implot_demo.cpp")
 
 add_dependencies(3DGraphicsRendering Dependencies)
