@@ -1,4 +1,5 @@
 #include <lvk/LVK.h>
+#include <lvk/HelpersImGui.h>
 
 #include <GLFW/glfw3.h>
 
@@ -12,6 +13,7 @@
 #include <assimp/cimport.h>
 
 #include <Bitmap.h>
+#include <Camera.h>
 #include <Utils.h>
 #include <UtilsCubemap.h>
 
@@ -21,7 +23,17 @@ using glm::mat4;
 using glm::vec2;
 using glm::vec3;
 using glm::vec4;
-using glm::ivec2;
+
+struct MouseState {
+    glm::vec2 pos = glm::vec2(0.0f);
+    bool pressedLeft = false;
+} mouseState;
+
+const vec3 kInitialCameraPos = vec3(0.0f, 1.0f, -1.5f);
+const vec3 kInitialCameraTarget = vec3(0.0f, 0.5f, 0.0f);
+
+CameraPositioner_FirstPerson positioner(kInitialCameraPos, kInitialCameraTarget, vec3(0.0f, 1.0f, 0.0f));
+Camera camera(positioner);
 
 int main(void)
 {
@@ -172,6 +184,57 @@ int main(void)
                 });
         }
 
+        glfwSetCursorPosCallback(window, [](auto* window, double x, double y) {
+            int width, height;
+            glfwGetFramebufferSize(window, &width, &height);
+            mouseState.pos.x = static_cast<float>(x / width);
+            mouseState.pos.y = 1.0f - static_cast<float>(y / height);
+            });
+
+        glfwSetMouseButtonCallback(window, [](auto* window, int button, int action, int mods) {
+            if (button == GLFW_MOUSE_BUTTON_LEFT) {
+                mouseState.pressedLeft = action == GLFW_PRESS;
+            }
+            double xpos, ypos;
+            glfwGetCursorPos(window, &xpos, &ypos);
+            const ImGuiMouseButton_ imguiButton = (button == GLFW_MOUSE_BUTTON_LEFT)
+                ? ImGuiMouseButton_Left
+                : (button == GLFW_MOUSE_BUTTON_RIGHT ? ImGuiMouseButton_Right : ImGuiMouseButton_Middle);
+
+            ImGuiIO& io = ImGui::GetIO();
+            io.MousePos = ImVec2((float)xpos, (float)ypos);
+            io.MouseDown[imguiButton] = action == GLFW_PRESS;
+            });
+
+        glfwSetKeyCallback(window, [](GLFWwindow* window, int key, int scancode, int action, int mods) {
+            const bool pressed = action != GLFW_RELEASE;
+            if (key == GLFW_KEY_ESCAPE && pressed)
+                glfwSetWindowShouldClose(window, GLFW_TRUE);
+            if (key == GLFW_KEY_W)
+                positioner.movement_.forward_ = pressed;
+            if (key == GLFW_KEY_S)
+                positioner.movement_.backward_ = pressed;
+            if (key == GLFW_KEY_A)
+                positioner.movement_.left_ = pressed;
+            if (key == GLFW_KEY_D)
+                positioner.movement_.right_ = pressed;
+            if (key == GLFW_KEY_1)
+                positioner.movement_.up_ = pressed;
+            if (key == GLFW_KEY_2)
+                positioner.movement_.down_ = pressed;
+            if (mods & GLFW_MOD_SHIFT)
+                positioner.movement_.fastSpeed_ = pressed;
+            if (key == GLFW_KEY_SPACE) {
+                positioner.lookAt(kInitialCameraPos, kInitialCameraTarget, vec3(0.0f, 1.0f, 0.0f));
+                positioner.setSpeed(vec3(0));
+            }
+            });
+
+        std::unique_ptr<lvk::ImGuiRenderer> imgui = std::make_unique<lvk::ImGuiRenderer>(*ctx, "data/OpenSans-Light.ttf", 30.0f);
+
+        double timeStamp = glfwGetTime();
+        float deltaSeconds = 0.0f;
+
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
             int width, height;
@@ -180,12 +243,18 @@ int main(void)
                 continue;
             const float ratio = width / (float)height;
 
-            const vec3 cameraPos(0.0f, 1.0f, -1.5f);
+            positioner.update(deltaSeconds, mouseState.pos, mouseState.pressedLeft);
+
+            const double newTimeStamp = glfwGetTime();
+            deltaSeconds = static_cast<float>(newTimeStamp - timeStamp);
+            timeStamp = newTimeStamp;
+
+            const vec4 cameraPos = vec4(camera.getPosition(), 1.0f);
 
             const mat4 p = glm::perspective(glm::radians(60.0f), ratio, 0.1f, 1000.0f);
             const mat4 m1 = glm::rotate(mat4(1.0f), glm::radians(-90.0f), vec3(1, 0, 0));
             const mat4 m2 = glm::rotate(mat4(1.0f), (float)glfwGetTime(), vec3(0.0f, 1.0f, 0.0f));
-            const mat4 v = glm::lookAt(cameraPos, vec3(0.0f, 0.5f, 0.0f), vec3(0.0f, 1.0f, 0.0f));
+            const mat4 v = glm::translate(mat4(1.0f), vec3(cameraPos));
 
             const lvk::RenderPass renderPass = {
               .color = { {.loadOp = lvk::LoadOp_Clear, .clearColor = { 1.0f, 1.0f, 1.0f, 1.0f } } },
@@ -201,9 +270,9 @@ int main(void)
             buf.cmdUpdateBuffer(
                 bufferPerFrame, PerFrameData{
                                     .model = m2 * m1,
-                                    .view = v,
+                                    .view = camera.getViewMatrix(),
                                     .proj = p,
-                                    .cameraPos = vec4(cameraPos, 1.0f),
+                                    .cameraPos = cameraPos,
                                     .tex = texture.index(),
                                     .texCube = cubemapTex.index(),
                 });
@@ -226,6 +295,20 @@ int main(void)
                         buf.cmdDrawIndexed(indices.size());
                         buf.cmdPopDebugGroupLabel();
                     }
+
+                    imgui->beginFrame(framebuffer);
+                    ImGui::SetNextWindowPos(ImVec2(10, 10));
+                    ImGui::Begin(
+                        "Keyboard hints:", nullptr,
+                        ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoInputs |
+                        ImGuiWindowFlags_NoCollapse);
+                    ImGui::Text("W/S/A/D - camera movement");
+                    ImGui::Text("1/2 - camera up/down");
+                    ImGui::Text("Shift - fast movement");
+                    ImGui::Text("Space - reset view");
+                    ImGui::End();
+                    imgui->endFrame(buf);
+
                     buf.cmdEndRendering();
                 }
             }
