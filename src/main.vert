@@ -1,18 +1,20 @@
-#version 460 core
+﻿//
 
-layout(push_constant) uniform PerFrameData {
-  uniform mat4 MVP;
-  uint textureId;
-};
+#include <src/common.sp>
 
-layout (location=0) out vec2 uv;
+layout (location = 0) in vec3 pos;
+layout (location = 1) in vec3 normal;
+layout (location = 2) in vec2 uv;
 
-const vec2 pos[4] = vec2[4](
-  vec2( 1.0, -1.0), vec2( 1.0, 1.0),
-  vec2(-1.0, -1.0), vec2(-1.0, 1.0)
-);
+layout (location=0) out PerVertex vtx;
 
 void main() {
-  gl_Position = MVP * vec4(0.5 * pos[gl_VertexIndex], 0.0, 1.0);
-  uv = 0.5 * (pos[gl_VertexIndex]+vec2(0.5));
+	gl_Position = pc.proj * pc.view * pc.model * vec4(pos, 1.0);
+
+	mat4 model = pc.model;
+	mat3 normalMatrix = transpose( inverse(mat3(pc.model)) );
+
+	vtx.uv = uv;
+	vtx.worldNormal = normalMatrix * normal;
+	vtx.worldPos = (model * vec4(pos, 1.0)).xyz;
 }
