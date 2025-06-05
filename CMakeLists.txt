@@ -107,6 +107,14 @@ if(MSVC)
 	target_compile_options(SPIRV  PRIVATE /wd4267)
 endif()
 
+# lvk tracy
+if(LVK_WITH_TRACY)
+  target_compile_definitions(LVKLibrary PUBLIC "LVK_WITH_TRACY=1")
+  if(LVK_WITH_TRACY_GPU)
+    target_compile_definitions(LVKLibrary PUBLIC "LVK_WITH_TRACY_GPU=1")
+  endif()
+endif()
+
 SETUP_APP(3DGraphicsRendering)
 
 target_link_libraries(3DGraphicsRendering assimp)

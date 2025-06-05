@@ -2,12 +2,14 @@
 #include <lvk/LVK.h>
 #include <lvk/HelpersImGui.h>
 #include <Utils.h>
+#include <UtilsFPS.h>
 #include <assimp/scene.h>
 #include <assimp/cimport.h>
 #include <assimp/postprocess.h>
 #include <glm/glm.hpp>
 #include <glm/ext.hpp>
 #include <stb/stb_image.h>
+#include <implot/implot.h>
 
 int main(void) {
 	minilog::initialize(nullptr, { .threadNames = false });
@@ -28,7 +30,7 @@ int main(void) {
 
 		std::unique_ptr<lvk::ImGuiRenderer> imgui =
 			std::make_unique<lvk::ImGuiRenderer>(
-				*ctx, "data/OpenSans-Light.ttf", 20.0f
+				*ctx, "data/OpenSans-Light.ttf", 15.0f
 			);
 
 		glfwSetCursorPosCallback(window,
@@ -122,7 +124,18 @@ int main(void) {
 			});
 		stbi_image_free((void*)img);
 
+		double timeStamp	= glfwGetTime();
+		float deltaSeconds  = 0.0f;
+		FramesPerSecondCounter fpsCounter(0.5f);
+
+		ImPlotContext* implotCtx = ImPlot::CreateContext();
+
 		while (!glfwWindowShouldClose(window)) {
+			fpsCounter.tick(deltaSeconds);
+			const double newTimeStamp = glfwGetTime();
+			deltaSeconds = static_cast<float>(newTimeStamp - timeStamp);
+			timeStamp	 = newTimeStamp;
+
 			glfwPollEvents();
 			glfwGetFramebufferSize(window, &width, &height);
 			if (!width || !height) continue;
@@ -157,8 +170,20 @@ int main(void) {
 			ImGui::Begin("Texture Viewer", nullptr,
 				ImGuiWindowFlags_AlwaysAutoResize);
 			ImGui::Image(texture.index(), ImVec2(512, 512));
-			ImGui::ShowDemoWindow();
 			ImGui::End();
+			if (const ImGuiViewport* v = ImGui::GetMainViewport()) {
+				ImGui::SetNextWindowPos({ v->WorkPos.x + v->WorkSize.x - 15.0f, v->WorkPos.y + 15.0f }, ImGuiCond_Always, { 1.0f, 0.0f });
+			}
+			ImGui::SetNextWindowBgAlpha(0.30f);
+			ImGui::SetNextWindowSize(ImVec2(ImGui::CalcTextSize("FPS : _______").x, 0));
+			if (ImGui::Begin("##FPS", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+				ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove)) {
+				ImGui::Text("FPS : %i", (int)fpsCounter.getFPS());
+				ImGui::Text("Ms  : %.1f", 1000.0 / fpsCounter.getFPS());
+			}
+			ImGui::End();
+			ImPlot::ShowDemoWindow();
+			ImGui::ShowDemoWindow();
 			imgui->endFrame(buf);
 			buf.cmdEndRendering();
 
