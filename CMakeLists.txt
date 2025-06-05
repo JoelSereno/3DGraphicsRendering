@@ -124,6 +124,7 @@ target_link_libraries(3DGraphicsRendering LUtils)
 target_link_libraries(3DGraphicsRendering LVKLibrary)
 target_link_libraries(3DGraphicsRendering LVKstb)
 target_link_libraries(3DGraphicsRendering ktx)
+target_link_libraries(3DGraphicsRendering meshoptimizer)
 
 target_sources(3DGraphicsRendering PRIVATE "${ROOT_DIR}/deps/src/lightweightvk/third-party/deps/src/imgui/imgui_demo.cpp")
 target_sources(3DGraphicsRendering PRIVATE "${ROOT_DIR}/deps/src/lightweightvk/third-party/deps/src/implot/implot_demo.cpp")

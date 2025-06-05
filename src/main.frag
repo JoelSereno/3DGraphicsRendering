@@ -1,21 +1,15 @@
 ﻿//
+#version 460 core
 
-#include <src/common.sp>
-
-layout (location=0) in PerVertex vtx;
-
+layout (location=0) in vec3 colors;
+layout (location=1) in vec3 barycoords;
 layout (location=0) out vec4 out_FragColor;
 
+float edgeFactor(float thickness) {
+	vec3 a3 = smoothstep( vec3( 0.0 ), fwidth(barycoords) * thickness, barycoords);
+	return min( min( a3.x, a3.y ), a3.z );
+}
+
 void main() {
-	vec3 n = normalize(vtx.worldNormal);
-	vec3 v = normalize(pc.cameraPos.xyz - vtx.worldPos);
-	vec3 reflection = -normalize(reflect(v, n));
-
-	vec4 colorRefl = textureBindlessCube(pc.texCube, 0, reflection);
-	vec4 Ka = colorRefl * 0.3;
-
-	float NdotL = clamp(dot(n, normalize(vec3(0,0,-1))), 0.1, 1.0);
-	vec4 Kd = textureBindless2D(pc.tex, 0, vtx.uv) * NdotL;
-
-	out_FragColor = Ka + Kd;
+	out_FragColor = vec4( mix( vec3(0.0), colors, edgeFactor(1.0) ), 1.0 );
 };
