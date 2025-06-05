@@ -1,70 +1,56 @@
-#include <lvk/LVK.h>
-#include <lvk/HelpersImGui.h>
+#include "VulkanApp.h"
 
-#include <GLFW/glfw3.h>
-
-#include <glm/ext.hpp>
-#include <glm/glm.hpp>
-#include <stb/stb_image.h>
-#include <stb/stb_image_write.h>
-
-#include <assimp/scene.h>
-#include <assimp/postprocess.h>
 #include <assimp/cimport.h>
+#include <assimp/postprocess.h>
+#include <assimp/scene.h>
 
-#include <Bitmap.h>
-#include <Camera.h>
-#include <Utils.h>
-#include <UtilsCubemap.h>
-
-#include <vector>
-
-using glm::mat4;
-using glm::vec2;
-using glm::vec3;
-using glm::vec4;
-
-struct MouseState {
-    glm::vec2 pos = glm::vec2(0.0f);
-    bool pressedLeft = false;
-} mouseState;
+#include "LineCanvas.h"
 
 const vec3 kInitialCameraPos = vec3(0.0f, 1.0f, -1.5f);
 const vec3 kInitialCameraTarget = vec3(0.0f, 0.5f, 0.0f);
+const vec3 kInitialCameraAngles = vec3(-18.5f, 180.0f, 0.0f);
 
-CameraPositioner_FirstPerson positioner(kInitialCameraPos, kInitialCameraTarget, vec3(0.0f, 1.0f, 0.0f));
-Camera camera(positioner);
+CameraPositioner_MoveTo positionerMoveTo(kInitialCameraPos, kInitialCameraAngles);
+vec3 cameraPos = kInitialCameraPos;
+vec3 cameraAngles = kInitialCameraAngles;
 
-int main(void)
+// ImGUI stuff
+const char* cameraType = "FirstPerson";
+const char* comboBoxItems[] = { "FirstPerson", "MoveTo" };
+const char* currentComboBoxItem = cameraType;
+
+LinearGraph fpsGraph("##fpsGraph", 2048);
+LinearGraph sinGraph("##sinGraph", 2048);
+
+void reinitCamera(VulkanApp& app)
 {
-    minilog::initialize(nullptr, { .threadNames = false });
-
-    GLFWwindow* window = nullptr;
-    SCOPE_EXIT
-    {
-      glfwDestroyWindow(window);
-      glfwTerminate();
-    };
-
-    {
-        std::unique_ptr<lvk::IContext> ctx;
-        lvk::Holder<lvk::TextureHandle> depthTexture;
-        {
-            int width = -95;
-            int height = -90;
-
-            window = lvk::initWindow("Simple example", width, height);
-            ctx = lvk::createVulkanContextWithSwapchain(window, width, height, {});
-
-            depthTexture = ctx->createTexture({
-                .type = lvk::TextureType_2D,
-                .format = lvk::Format_Z_F32,
-                .dimensions = {(uint32_t)width, (uint32_t)height},
-                .usage = lvk::TextureUsageBits_Attachment,
-                .debugName = "Depth buffer",
-                });
+    if (!strcmp(cameraType, "FirstPerson")) {
+        app.camera_ = Camera(app.positioner_);
+    }
+    else {
+        if (!strcmp(cameraType, "MoveTo")) {
+            cameraPos = kInitialCameraPos;
+            cameraAngles = kInitialCameraAngles;
+            positionerMoveTo.setDesiredPosition(kInitialCameraPos);
+            positionerMoveTo.setDesiredAngles(kInitialCameraAngles);
+            app.camera_ = Camera(positionerMoveTo);
         }
+    }
+}
 
+int main()
+{
+    VulkanApp app({ .initialCameraPos = kInitialCameraPos, .initialCameraTarget = kInitialCameraTarget });
+
+    LineCanvas2D canvas2d;
+    LineCanvas3D canvas3d;
+
+    app.fpsCounter_.avgInterval_ = 0.002f;
+    app.fpsCounter_.printFPS_ = false;
+
+    std::unique_ptr<lvk::IContext> ctx(app.ctx_.get());
+
+    {
         struct VertexData {
             vec3 pos;
             vec3 n;
@@ -88,7 +74,7 @@ int main(void)
             .smVert = vert,
             .smFrag = frag,
             .color = { {.format = ctx->getSwapchainFormat() } },
-            .depthFormat = ctx->getFormat(depthTexture),
+            .depthFormat = app.getDepthFormat(),
             .cullMode = lvk::CullMode_Back,
             });
 
@@ -96,7 +82,7 @@ int main(void)
             .smVert = vertSkybox,
             .smFrag = fragSkybox,
             .color = { {.format = ctx->getSwapchainFormat() } },
-            .depthFormat = ctx->getFormat(depthTexture),
+            .depthFormat = app.getDepthFormat(),
             });
 
         const aiScene* scene = aiImportFile("data/rubber_duck/scene.gltf", aiProcess_Triangulate);
@@ -184,77 +170,22 @@ int main(void)
                 });
         }
 
-        glfwSetCursorPosCallback(window, [](auto* window, double x, double y) {
-            int width, height;
-            glfwGetFramebufferSize(window, &width, &height);
-            mouseState.pos.x = static_cast<float>(x / width);
-            mouseState.pos.y = 1.0f - static_cast<float>(y / height);
-            });
+        app.run([&](uint32_t width, uint32_t height, float aspectRatio, float deltaSeconds) {
+            positionerMoveTo.update(deltaSeconds, app.mouseState_.pos, ImGui::GetIO().WantCaptureMouse ? false : app.mouseState_.pressedLeft);
 
-        glfwSetMouseButtonCallback(window, [](auto* window, int button, int action, int mods) {
-            if (button == GLFW_MOUSE_BUTTON_LEFT) {
-                mouseState.pressedLeft = action == GLFW_PRESS;
-            }
-            double xpos, ypos;
-            glfwGetCursorPos(window, &xpos, &ypos);
-            const ImGuiMouseButton_ imguiButton = (button == GLFW_MOUSE_BUTTON_LEFT)
-                ? ImGuiMouseButton_Left
-                : (button == GLFW_MOUSE_BUTTON_RIGHT ? ImGuiMouseButton_Right : ImGuiMouseButton_Middle);
-
-            ImGuiIO& io = ImGui::GetIO();
-            io.MousePos = ImVec2((float)xpos, (float)ypos);
-            io.MouseDown[imguiButton] = action == GLFW_PRESS;
-            });
-
-        glfwSetKeyCallback(window, [](GLFWwindow* window, int key, int scancode, int action, int mods) {
-            const bool pressed = action != GLFW_RELEASE;
-            if (key == GLFW_KEY_ESCAPE && pressed)
-                glfwSetWindowShouldClose(window, GLFW_TRUE);
-            if (key == GLFW_KEY_W)
-                positioner.movement_.forward_ = pressed;
-            if (key == GLFW_KEY_S)
-                positioner.movement_.backward_ = pressed;
-            if (key == GLFW_KEY_A)
-                positioner.movement_.left_ = pressed;
-            if (key == GLFW_KEY_D)
-                positioner.movement_.right_ = pressed;
-            if (key == GLFW_KEY_1)
-                positioner.movement_.up_ = pressed;
-            if (key == GLFW_KEY_2)
-                positioner.movement_.down_ = pressed;
-            if (mods & GLFW_MOD_SHIFT)
-                positioner.movement_.fastSpeed_ = pressed;
-            if (key == GLFW_KEY_SPACE) {
-                positioner.lookAt(kInitialCameraPos, kInitialCameraTarget, vec3(0.0f, 1.0f, 0.0f));
-                positioner.setSpeed(vec3(0));
-            }
-            });
-
-        std::unique_ptr<lvk::ImGuiRenderer> imgui = std::make_unique<lvk::ImGuiRenderer>(*ctx, "data/OpenSans-Light.ttf", 30.0f);
-
-        double timeStamp = glfwGetTime();
-        float deltaSeconds = 0.0f;
-
-        while (!glfwWindowShouldClose(window)) {
-            glfwPollEvents();
-            int width, height;
-            glfwGetFramebufferSize(window, &width, &height);
-            if (!width || !height)
-                continue;
-            const float ratio = width / (float)height;
-
-            positioner.update(deltaSeconds, mouseState.pos, mouseState.pressedLeft);
-
-            const double newTimeStamp = glfwGetTime();
-            deltaSeconds = static_cast<float>(newTimeStamp - timeStamp);
-            timeStamp = newTimeStamp;
-
-            const vec4 cameraPos = vec4(camera.getPosition(), 1.0f);
-
-            const mat4 p = glm::perspective(glm::radians(60.0f), ratio, 0.1f, 1000.0f);
+            const mat4 p = glm::perspective(glm::radians(60.0f), aspectRatio, 0.1f, 1000.0f);
             const mat4 m1 = glm::rotate(mat4(1.0f), glm::radians(-90.0f), vec3(1, 0, 0));
             const mat4 m2 = glm::rotate(mat4(1.0f), (float)glfwGetTime(), vec3(0.0f, 1.0f, 0.0f));
-            const mat4 v = glm::translate(mat4(1.0f), vec3(cameraPos));
+            const mat4 v = glm::translate(mat4(1.0f), app.camera_.getPosition());
+
+            const PerFrameData perFrameData = {
+              .model = m2 * m1,
+              .view = app.camera_.getViewMatrix(),
+              .proj = p,
+              .cameraPos = vec4(app.camera_.getPosition(), 1.0f),
+              .tex = texture.index(),
+              .texCube = cubemapTex.index(),
+            };
 
             const lvk::RenderPass renderPass = {
               .color = { {.loadOp = lvk::LoadOp_Clear, .clearColor = { 1.0f, 1.0f, 1.0f, 1.0f } } },
@@ -263,19 +194,11 @@ int main(void)
 
             const lvk::Framebuffer framebuffer = {
               .color = { {.texture = ctx->getCurrentSwapchainTexture() } },
-              .depthStencil = {.texture = depthTexture },
+              .depthStencil = {.texture = app.getDepthTexture() },
             };
 
             lvk::ICommandBuffer& buf = ctx->acquireCommandBuffer();
-            buf.cmdUpdateBuffer(
-                bufferPerFrame, PerFrameData{
-                                    .model = m2 * m1,
-                                    .view = camera.getViewMatrix(),
-                                    .proj = p,
-                                    .cameraPos = cameraPos,
-                                    .tex = texture.index(),
-                                    .texCube = cubemapTex.index(),
-                });
+            buf.cmdUpdateBuffer(bufferPerFrame, perFrameData);
             {
                 buf.cmdBeginRendering(renderPass, framebuffer);
                 {
@@ -296,7 +219,9 @@ int main(void)
                         buf.cmdPopDebugGroupLabel();
                     }
 
-                    imgui->beginFrame(framebuffer);
+                    app.imgui_->beginFrame(framebuffer);
+
+                    // memo
                     ImGui::SetNextWindowPos(ImVec2(10, 10));
                     ImGui::Begin(
                         "Keyboard hints:", nullptr,
@@ -307,13 +232,86 @@ int main(void)
                     ImGui::Text("Shift - fast movement");
                     ImGui::Text("Space - reset view");
                     ImGui::End();
-                    imgui->endFrame(buf);
+
+                    // FPS
+                    if (const ImGuiViewport* v = ImGui::GetMainViewport()) {
+                        ImGui::SetNextWindowPos({ v->WorkPos.x + v->WorkSize.x - 15.0f, v->WorkPos.y + 15.0f }, ImGuiCond_Always, { 1.0f, 0.0f });
+                    }
+                    ImGui::SetNextWindowBgAlpha(0.30f);
+                    ImGui::SetNextWindowSize(ImVec2(ImGui::CalcTextSize("FPS : _______").x, 0));
+                    if (ImGui::Begin(
+                        "##FPS", nullptr,
+                        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+                        ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove)) {
+                        ImGui::Text("FPS : %i", (int)app.fpsCounter_.getFPS());
+                        ImGui::Text("Ms  : %.1f", 1000.0 / app.fpsCounter_.getFPS());
+                    }
+                    ImGui::End();
+
+                    // camera controls
+                    ImGui::Begin("Camera Controls", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+                    {
+                        if (ImGui::BeginCombo("##combo", currentComboBoxItem)) // the second parameter is the label previewed before opening the combo.
+                        {
+                            for (int n = 0; n < IM_ARRAYSIZE(comboBoxItems); n++) {
+                                const bool isSelected = (currentComboBoxItem == comboBoxItems[n]);
+
+                                if (ImGui::Selectable(comboBoxItems[n], isSelected))
+                                    currentComboBoxItem = comboBoxItems[n];
+
+                                if (isSelected)
+                                    ImGui::SetItemDefaultFocus(); // initial focus when opening the combo (scrolling + for keyboard navigation support)
+                            }
+                            ImGui::EndCombo();
+                        }
+
+                        if (!strcmp(cameraType, "MoveTo")) {
+                            if (ImGui::SliderFloat3("Position", glm::value_ptr(cameraPos), -10.0f, +10.0f))
+                                positionerMoveTo.setDesiredPosition(cameraPos);
+                            if (ImGui::SliderFloat3("Pitch/Pan/Roll", glm::value_ptr(cameraAngles), -180.0f, +180.0f))
+                                positionerMoveTo.setDesiredAngles(cameraAngles);
+                        }
+
+                        if (currentComboBoxItem && strcmp(currentComboBoxItem, cameraType)) {
+                            printf("Selected new camera type: %s\n", currentComboBoxItem);
+                            cameraType = currentComboBoxItem;
+                            reinitCamera(app);
+                        }
+                    }
+                    ImGui::End();
+
+                    // graphs
+                    sinGraph.renderGraph(0, height * 0.7f, width, height * 0.2f, vec4(0.0f, 1.0f, 0.0f, 1.0f));
+                    fpsGraph.renderGraph(0, height * 0.8f, width, height * 0.2f);
+
+                    canvas2d.clear();
+                    canvas2d.line({ 100, 300 }, { 100, 400 }, vec4(1, 0, 0, 1));
+                    canvas2d.line({ 100, 400 }, { 200, 400 }, vec4(0, 1, 0, 1));
+                    canvas2d.line({ 200, 400 }, { 200, 300 }, vec4(0, 0, 1, 1));
+                    canvas2d.line({ 200, 300 }, { 100, 300 }, vec4(1, 1, 0, 1));
+                    canvas2d.render("##plane");
+
+                    canvas3d.clear();
+                    canvas3d.setMatrix(perFrameData.proj * perFrameData.view);
+                    canvas3d.plane(vec3(0, 0, 0), vec3(1, 0, 0), vec3(0, 0, 1), 40, 40, 10.0f, 10.0f, vec4(1, 0, 0, 1), vec4(0, 1, 0, 1));
+                    canvas3d.box(mat4(1.0f), BoundingBox(vec3(-2), vec3(+2)), vec4(1, 1, 0, 1));
+                    canvas3d.frustum(
+                        glm::lookAt(vec3(cos(glfwGetTime()), kInitialCameraPos.y, sin(glfwGetTime())), kInitialCameraTarget, vec3(0.0f, 1.0f, 0.0f)),
+                        glm::perspective(glm::radians(60.0f), aspectRatio, 0.1f, 30.0f), vec4(1, 1, 1, 1));
+                    canvas3d.render(*ctx.get(), framebuffer, buf);
+
+                    app.imgui_->endFrame(buf);
 
                     buf.cmdEndRendering();
                 }
             }
             ctx->submit(buf, ctx->getCurrentSwapchainTexture());
-        }
+
+            fpsGraph.addPoint(app.fpsCounter_.getFPS());
+            sinGraph.addPoint(sinf(glfwGetTime() * 20.0f));
+            });
+
+        ctx.release();
     }
 
     return 0;
